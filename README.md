@@ -4,7 +4,9 @@
 
 ### Scaled dot-product attention
 
-The transformer's core operation can be attributed to the scaled dot-product attention. Attention lets each token in a sequence look at every other token and decide how much to borrow from it. Three matrices drive this:
+![Scalar Dot Product Attention](scalar_dot_product.png)
+
+Behind all Transformer model's core operations, a significant contribution can be attributed to the scaled dot-product attention. Attention lets each token in a sequence look at every other token and decide how much to borrow from it. Three matrices drive this:
 
 Q (Query) — what this token is looking for
 K (Key) — what each token has to offer
@@ -90,7 +92,7 @@ kernels can reduces memory traffic.
 
 ### Interesting Fact:
 
-The Dot-Product Attention used for GPT2 had more than 3 kernels! But Flash-Attention solved that inefficiency.
+The Scalar Dot-Product Attention used for GPT2 had 5 kernels! But Flash-Attention solved that inefficiency.
 ![GPT 2 Attention vs Flash Attention](GPT2_Attention_steps.png)
 
 Can you start by trying to reach similar efficiency as the attention in GPT2 ? 😊
