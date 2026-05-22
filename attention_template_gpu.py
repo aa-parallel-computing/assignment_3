@@ -11,31 +11,151 @@ import torch.nn.functional as F
 from torch.utils.benchmark import Timer
 from torch.utils.cpp_extension import load_inline
 
-_CUDA_SRC = r""" YOUR INLINE CUDA CODE HERE
+import os
+# for gcc version issue in csc, might not apply in other environment
+_extra_cuda_cflags = ["-O2"]
+_gcc12 = "/opt/rh/gcc-toolset-12/root/usr/bin/g++"
+if os.path.isfile(_gcc12):
+   _extra_cuda_cflags += ["-ccbin", _gcc12]
+   os.environ.setdefault("CXX", _gcc12)
 
-
+_CUDA_SRC = r"""
 #include <torch/extension.h>
 #include <cuda_runtime.h>
 #include <float.h>
 #include <math.h>
 
-\\ TODO: Implement the necessary CUDA kernels for the attention computation.
+// Kernel 1: compute P = Q * K^T / sqrt(D)
+// each thread computes one element P[bh][i][j]
+// by doing a dot product of row i of Q and row j of K
+__global__ void qk_dot(
+    const float* Q,   // [BH, S, D]
+    const float* K,   // [BH, S, D]
+    float* P,         // [BH, S, S]
+    int S, int D
+) {
+    int bh = blockIdx.x;                            // which batch-head
+    int i  = blockIdx.y * blockDim.y + threadIdx.y; // row in P (query row)
+    int j  = blockIdx.z * blockDim.x + threadIdx.x; // col in P (key row)
+
+    if (i >= S || j >= S) return;
+
+    float scale = 1.0f / sqrtf((float)D);
+
+    // dot product of Q[bh][i][:] and K[bh][j][:]
+    float sum = 0.0f;
+    for (int d = 0; d < D; d++) {
+        sum += Q[bh * S * D + i * D + d] * K[bh * S * D + j * D + d];
+    }
+
+    P[bh * S * S + i * S + j] = sum * scale;
+}
+
+// Kernel 2: row-wise softmax on P, done in-place
+// each thread handles one full row P[bh][i][:]
+__global__ void softmax_rows(
+    float* P,         // [BH, S, S]
+    int S, int BH
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;  // flat index
+    if (idx >= BH * S) return;
+
+    int bh = idx / S;  // which batch-head
+    int i  = idx % S;  // which row
+
+    float* row = P + bh * S * S + i * S;
+
+    // pass 1: find the max value in this row (for numerical stability)
+    float max_val = -FLT_MAX;
+    for (int j = 0; j < S; j++) {
+        if (row[j] > max_val) max_val = row[j];
+    }
+
+    // pass 2: compute exp(val - max) and accumulate the sum
+    float sum = 0.0f;
+    for (int j = 0; j < S; j++) {
+        row[j] = expf(row[j] - max_val);
+        sum += row[j];
+    }
+
+    // pass 3: divide by the sum so the row adds up to 1
+    for (int j = 0; j < S; j++) {
+        row[j] /= sum;
+    }
+}
+
+
+// Kernel 3: compute O = A * V
+// each thread computes one element O[bh][i][d]
+// by doing a dot product of row i of A and column d of V
+__global__ void av_mul(
+    const float* A,   // [BH, S, S]
+    const float* V,   // [BH, S, D]
+    float* O,         // [BH, S, D]
+    int S, int D
+) {
+    int bh = blockIdx.x;                            // which batch-head
+    int i  = blockIdx.y * blockDim.y + threadIdx.y; // row in O (sequence pos)
+    int d  = blockIdx.z * blockDim.x + threadIdx.x; // col in O (head dim)
+
+    if (i >= S || d >= D) return;
+
+    // dot product of A[bh][i][:] and V[bh][:][d]
+    float sum = 0.0f;
+    for (int j = 0; j < S; j++) {
+        sum += A[bh * S * S + i * S + j] * V[bh * S * D + j * D + d];
+    }
+
+    O[bh * S * D + i * D + d] = sum;
+}
 
 torch::Tensor attention_forward(
-    torch::Tensor Q,   // [B, H, S, D]  float32, CUDA
+    torch::Tensor Q,   // [B, H, S, D]
     torch::Tensor K,
     torch::Tensor V
-) { 
-
+) {
     TORCH_CHECK(Q.device().is_cuda());
     TORCH_CHECK(Q.is_contiguous() && K.is_contiguous() && V.is_contiguous());
     TORCH_CHECK(Q.dtype() == torch::kFloat32);
 
-    // Your CUDA code here should compute the attention output and return it
+    const int B = Q.size(0);
+    const int H = Q.size(1);
+    const int S = Q.size(2);
+    const int D = Q.size(3);
+
+    // P holds the score matrix, shape [B, H, S, S]
+    auto P = torch::empty({B, H, S, S}, Q.options());
+
+    // O is the final output, shape [B, H, S, D]
+    auto O = torch::empty({B, H, S, D}, Q.options());
+
+    // flatten batch and heads into one dimension
+    const int BH = B * H;
+
+    // --- Kernel 1: P = Q * K^T / sqrt(D) ---
+    // one thread per element of P, so grid covers [BH, S, S]
+    dim3 block1(16, 16);
+    dim3 grid1(BH, (S + 15) / 16, (S + 15) / 16);
+    qk_dot<<<grid1, block1>>>(Q.data_ptr<float>(), K.data_ptr<float>(),
+                              P.data_ptr<float>(), S, D);
+
+    // --- Kernel 2: softmax each row of P in-place ---
+    // one thread per row, so we need BH * S threads total
+    int threads2 = 256;
+    int blocks2 = (BH * S + threads2 - 1) / threads2;
+    softmax_rows<<<blocks2, threads2>>>(P.data_ptr<float>(), S, BH);
+
+    // --- Kernel 3: O = A * V ---
+    // one thread per element of O, so grid covers [BH, S, D]
+    dim3 block3(16, 16);
+    dim3 grid3(BH, (S + 15) / 16, (D + 15) / 16);
+    av_mul<<<grid3, block3>>>(P.data_ptr<float>(), V.data_ptr<float>(),
+                             O.data_ptr<float>(), S, D);
+
+    return O;
 }
-
-
 """
+
 
 
 _CPP_DECL = (
@@ -47,7 +167,7 @@ _attn_ext = load_inline(
     cpp_sources=_CPP_DECL,
     cuda_sources=_CUDA_SRC,
     functions=["attention_forward"],
-    extra_cuda_cflags=["-O2"],
+    extra_cuda_cflags=_extra_cuda_cflags,
     verbose=False,
 )
 
