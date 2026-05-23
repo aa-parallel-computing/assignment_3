@@ -11,7 +11,10 @@
 #SBATCH --error=attn_kernel_%j.err
 
 module load pytorch/2.4
+module load gcc/13.1.0
 
-rm -rf ~/.cache/torch_extensions/py311_cu124/attn_ext/
+export LD_PRELOAD=/appl/spack/v020/install-tree/gcc-8.5.0/gcc-13.1.0-how4ki/lib64/libstdc++.so.6
+
+rm -rf ~/.cache/torch_extensions/
 
 srun /appl/soft/ai/wrap/pytorch-2.4/bin/python3 attention_template_gpu.py
