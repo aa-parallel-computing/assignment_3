@@ -14,10 +14,9 @@ from torch.utils.cpp_extension import load_inline
 import os
 # for gcc version issue in csc, might not apply in other environment
 _extra_cuda_cflags = ["-O2"]
-_gcc12 = "/opt/rh/gcc-toolset-12/root/usr/bin/g++"
-if os.path.isfile(_gcc12):
-   _extra_cuda_cflags += ["-ccbin", _gcc12]
-   os.environ.setdefault("CXX", _gcc12)
+_gcc13 = "/appl/spack/v020/install-tree/gcc-8.5.0/gcc-13.1.0-how4ki/bin/g++"
+_extra_cuda_cflags += ["-ccbin", _gcc13]
+os.environ["CXX"] = _gcc13
 
 _CUDA_SRC = r"""
 #include <torch/extension.h>
@@ -162,6 +161,11 @@ _CPP_DECL = (
     "torch::Tensor attention_forward(torch::Tensor, torch::Tensor, torch::Tensor);"
 )
 
+
+import shutil
+_cache_dir = os.path.expanduser("~/.cache/torch_extensions/py311_cu124/attn_ext")
+if os.path.exists(_cache_dir):
+    shutil.rmtree(_cache_dir)
 _attn_ext = load_inline(
     name="attn_ext",
     cpp_sources=_CPP_DECL,
@@ -231,8 +235,38 @@ def check_correctness():
 def run_benchmark():
     """Benchmark the CUDA implementation against PyTorch's Flash Attention."""
 
-    " TODO: Implement a benchmark that compares the runtime of attention_cuda vs attention_pytorch. "
+    print("=" * 55)
+    print("  Step 2: Performance Benchmark")
+    print("=" * 55)
 
+    B, H, D = 2, 8, 64
+    configs = [128, 512, 1024]
+
+    print(f"  {'S':<6} {'Your Kernel (ms)':<20} {'PyTorch (ms)':<20} {'Slowdown'}")
+    print("  " + "-" * 50)
+
+    for S in configs:
+        Q = torch.randn(B, H, S, D, device="cuda")
+        K = torch.randn(B, H, S, D, device="cuda")
+        V = torch.randn(B, H, S, D, device="cuda")
+
+        t_cuda = Timer(
+            stmt="attention_cuda(Q, K, V)",
+            globals={"attention_cuda": attention_cuda, "Q": Q, "K": K, "V": V}
+        ).blocked_autorange(min_run_time=1.0)
+
+        t_pytorch = Timer(
+            stmt="attention_pytorch(Q, K, V)",
+            globals={"attention_pytorch": attention_pytorch, "Q": Q, "K": K, "V": V}
+        ).blocked_autorange(min_run_time=1.0)
+
+        your_ms = t_cuda.median * 1e3
+        pytorch_ms = t_pytorch.median * 1e3
+        slowdown = your_ms / pytorch_ms
+
+        print(f"  {S:<6} {your_ms:<20.3f} {pytorch_ms:<20.3f} {slowdown:.1f}x")
+
+    print()
 
 # Main
 
