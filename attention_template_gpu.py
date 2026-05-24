@@ -431,6 +431,11 @@ def run_benchmark():
 if __name__ == "__main__":
     passed = check_correctness()
 
+    print(f"Passed : {passed}")
+
+    # if passed:
+    #     run_benchmark()
+
 #  ===========3a. Collect the profile =============
 #  │
 #  │  ncu \
