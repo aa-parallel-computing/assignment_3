@@ -13,8 +13,9 @@
 module load pytorch/2.4
 
 
-module load gcc/13.1.0 2>/dev/null || true
-_libstdcpp="/appl/spack/v020/install-tree/gcc-8.5.0/gcc-13.1.0-how4ki/lib64/libstdc++.so.6"
+module load gcc/13.2.0 2>/dev/null || module load gcc/13.1.0 2>/dev/null || true
+
+_libstdcpp=$(gcc --print-file-name=libstdc++.so.6 2>/dev/null)
 [ -f "$_libstdcpp" ] && export LD_PRELOAD="$_libstdcpp"
 
 rm -rf ~/.cache/torch_extensions/

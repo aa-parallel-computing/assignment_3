@@ -13,12 +13,18 @@ from torch.utils.cpp_extension import load_inline
 
 import os
 
-# GCC 13.1 override — only needed on Mahti (path does not exist on Puhti)
+# Use the g++ that was loaded by the module system (works on both Puhti and Mahti).
+# Falls back to the Mahti hardcoded path if `which g++` returns nothing.
+import shutil
 _extra_cuda_cflags = ["-O2"]
-_gcc13 = "/appl/spack/v020/install-tree/gcc-8.5.0/gcc-13.1.0-how4ki/bin/g++"
-if os.path.exists(_gcc13):
-    _extra_cuda_cflags += ["-ccbin", _gcc13]
-    os.environ["CXX"] = _gcc13
+_gxx = shutil.which("g++")
+_gxx_mahti = "/appl/spack/v020/install-tree/gcc-8.5.0/gcc-13.1.0-how4ki/bin/g++"
+if _gxx:
+    _extra_cuda_cflags += ["-ccbin", _gxx]
+    os.environ["CXX"] = _gxx
+elif os.path.exists(_gxx_mahti):
+    _extra_cuda_cflags += ["-ccbin", _gxx_mahti]
+    os.environ["CXX"] = _gxx_mahti
 
 _CUDA_SRC = r"""
 #include <torch/extension.h>
