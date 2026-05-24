@@ -13,11 +13,12 @@ from torch.utils.cpp_extension import load_inline
 
 import os
 
-# for gcc version issue in csc, might not apply in other environment
+# GCC 13.1 override — only needed on Mahti (path does not exist on Puhti)
 _extra_cuda_cflags = ["-O2"]
 _gcc13 = "/appl/spack/v020/install-tree/gcc-8.5.0/gcc-13.1.0-how4ki/bin/g++"
-_extra_cuda_cflags += ["-ccbin", _gcc13]
-os.environ["CXX"] = _gcc13
+if os.path.exists(_gcc13):
+    _extra_cuda_cflags += ["-ccbin", _gcc13]
+    os.environ["CXX"] = _gcc13
 
 _CUDA_SRC = r"""
 #include <torch/extension.h>
