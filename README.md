@@ -177,7 +177,7 @@ Address all of the following in your report:
   How does AI change as S increases for the naive implementation? What does
   this tell you about how the bottleneck changes with sequence length, and why
   does this matter for long-context language models?
-- **Impact of kernel fusion** _(if you attempted Step 3)_  
+- **Impact of kernel fusion** _(if you attempted to fuse the kernels)_  
   Compare the profiler output before and after merging kernels. Does DRAM%
   decrease? Does your position on the roofline move to the right? By how much
   did the execution time change?
