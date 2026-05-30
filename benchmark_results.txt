@@ -1,16 +1,19 @@
+/usr/local/lib64/python3.11/site-packages/torch/utils/cpp_extension.py:1965: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
 ============================================================
   Step 1: Correctness check
 ============================================================
 
   [Naive kernel]
   B=1 H=1 S=64   D=64  max_err=1.25e-06  ✓  PASS
-  B=2 H=4 S=128  D=64  max_err=1.79e-06  ✓  PASS
-  B=2 H=8 S=512  D=64  max_err=1.40e-06  ✓  PASS
+  B=2 H=4 S=128  D=64  max_err=1.43e-06  ✓  PASS
+  B=2 H=8 S=512  D=64  max_err=1.55e-06  ✓  PASS
 
   [Fused kernel]
-  B=1 H=1 S=64   D=64  max_err=9.54e-07  ✓  PASS
-  B=2 H=4 S=128  D=64  max_err=2.15e-06  ✓  PASS
-  B=2 H=8 S=512  D=64  max_err=1.97e-06  ✓  PASS
+  B=1 H=1 S=64   D=64  max_err=6.56e-07  ✓  PASS
+  B=2 H=4 S=128  D=64  max_err=1.79e-06  ✓  PASS
+  B=2 H=8 S=512  D=64  max_err=1.73e-06  ✓  PASS
 
   All configurations passed (naive + fused). Proceed to Step 2.
 
@@ -23,7 +26,45 @@ Passed : True
 
 S        Naive (ms)       Fused (ms)       PyTorch (ms)     Slowdown (naive)
 --------------------------------------------------------------------------
-128      0.7569           1.8154           0.0603                     12.5x
-512      11.2679          23.8672          0.4316                     26.1x
-1024     43.5535          93.7511          1.4960                     29.1x
+128      0.2603           0.6508           0.0457                      5.7x
+512      1.8572           4.7910           0.1207                     15.4x
+1024     6.0700           14.6796          0.2754                     22.0x
+
+========================================================================
+  torch.profiler  |  B=2 H=8 S=512 D=64
+========================================================================
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+flash_attention_kernel(float const*, float const*, f...         0.00%       0.000us         0.00%       0.000us       0.000us      47.742ms        71.20%      47.742ms       4.774ms            10  
+qk_dot(float const*, float const*, float*, int, int)...         0.00%       0.000us         0.00%       0.000us       0.000us      10.056ms        15.00%      10.056ms       1.006ms            10  
+                         softmax_rows(float*, int, int)         0.00%       0.000us         0.00%       0.000us       0.000us       6.342ms         9.46%       6.342ms     634.158us            10  
+av_mul(float const*, float const*, float*, int, int)...         0.00%       0.000us         0.00%       0.000us       0.000us       1.960ms         2.92%       1.960ms     196.003us            10  
+fmha_cutlassF_f32_aligned_64x64_rf_sm80(PyTorchMemEf...         0.00%       0.000us         0.00%       0.000us       0.000us     953.981us         1.42%     953.981us      95.398us            10  
+                                       cudaLaunchKernel         0.63%     415.273us         0.63%     415.273us       8.305us       0.000us         0.00%       0.000us       0.000us            50  
+                                  cudaDeviceSynchronize        99.34%      65.010ms        99.34%      65.010ms      16.252ms       0.000us         0.00%       0.000us       0.000us             4  
+                                  cudaStreamIsCapturing         0.03%      16.740us         0.03%      16.740us       1.674us       0.000us         0.00%       0.000us       0.000us            10  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 65.442ms
+Self CUDA time total: 67.053ms
+
+
+========================================================================
+  torch.profiler  |  B=2 H=8 S=1024 D=64
+========================================================================
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+flash_attention_kernel(float const*, float const*, f...         0.00%       0.000us         0.00%       0.000us       0.000us     146.657ms        69.96%     146.657ms      14.666ms            10  
+qk_dot(float const*, float const*, float*, int, int)...         0.00%       0.000us         0.00%       0.000us       0.000us      40.047ms        19.11%      40.047ms       4.005ms            10  
+                         softmax_rows(float*, int, int)         0.00%       0.000us         0.00%       0.000us       0.000us      12.271ms         5.85%      12.271ms       1.227ms            10  
+av_mul(float const*, float const*, float*, int, int)...         0.00%       0.000us         0.00%       0.000us       0.000us       8.141ms         3.88%       8.141ms     814.132us            10  
+fmha_cutlassF_f32_aligned_64x64_rf_sm80(PyTorchMemEf...         0.00%       0.000us         0.00%       0.000us       0.000us       2.499ms         1.19%       2.499ms     249.913us            10  
+                                       cudaLaunchKernel         0.17%     356.821us         0.17%     356.821us       7.136us       0.000us         0.00%       0.000us       0.000us            50  
+                                  cudaDeviceSynchronize        99.82%     207.815ms        99.82%     207.815ms      51.954ms       0.000us         0.00%       0.000us       0.000us             4  
+                                  cudaStreamIsCapturing         0.00%      10.270us         0.00%      10.270us       1.027us       0.000us         0.00%       0.000us       0.000us            10  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 208.183ms
+Self CUDA time total: 209.616ms
+
 

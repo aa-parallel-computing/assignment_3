@@ -1,9 +1,6 @@
 """
 Assignment 3 – Attention Kernel Optimisation
 GPU Template  (NVIDIA CUDA)
-
-A sample code snippet is provided below to get you started.
-Feel free to change the code in any way you see fit.
 """
 
 import torch
@@ -400,6 +397,49 @@ def run_benchmark():
         print(f"{S:<8} {naive_ms:<16.4f} {fused_ms:<16.4f} {pytorch_ms:<16.4f} {slowdown:>14.1f}x")
 
     print()
+
+    # --------------------------------------------------------
+    # torch.profiler block — S=512 and S=1024
+    # --------------------------------------------------------
+    import torch.profiler as tprof
+
+    for S in [512, 1024]:
+        Q = torch.randn(B, H, S, D, device="cuda")
+        K = torch.randn(B, H, S, D, device="cuda")
+        V = torch.randn(B, H, S, D, device="cuda")
+
+        # warm-up
+        for _ in range(5):
+            attention_cuda(Q, K, V)
+            attention_fused_cuda(Q, K, V)
+            attention_pytorch(Q, K, V)
+        torch.cuda.synchronize()
+
+        print("=" * 72)
+        print(f"  torch.profiler  |  B={B} H={H} S={S} D={D}")
+        print("=" * 72)
+
+        with tprof.profile(
+            activities=[tprof.ProfilerActivity.CUDA],
+        ) as prof:
+            for _ in range(10):
+                with tprof.record_function("attention_cuda"):
+                    attention_cuda(Q, K, V)
+            torch.cuda.synchronize()
+            for _ in range(10):
+                with tprof.record_function("attention_fused_cuda"):
+                    attention_fused_cuda(Q, K, V)
+            torch.cuda.synchronize()
+            for _ in range(10):
+                with tprof.record_function("attention_pytorch"):
+                    attention_pytorch(Q, K, V)
+            torch.cuda.synchronize()
+
+        print(prof.key_averages().table(
+            sort_by="cuda_time_total",
+            row_limit=20,
+        ))
+        print()
 
 
 # ============================================================
