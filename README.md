@@ -182,6 +182,11 @@ Address all of the following in your report:
   decrease? Does your position on the roofline move to the right? By how much
   did the execution time change?
 
+
+## Grading Criteria
+
+Coding Kernels (40)	Roofline Tests (40)	Report (20)	EXTRA (20) - for very optimized kernels
+
 ## References
 
 - Vaswani et al., _Attention Is All You Need_, NeurIPS 2017.  
